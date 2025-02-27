@@ -1,0 +1,52 @@
+#include <Encoder.h>
+#include <LiquidCrystal.h>
+Encoder myEnc(2, 3); 
+
+long oldPosition = 0;
+const int pulsesPerRevolution = 600;  
+const int countsPerRevolution = pulsesPerRevolution * 4; 
+
+//RS, E, D4, D5, D6, D7
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 6, d7 = 7;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+void setup() {
+  Serial.begin(9600);
+  lcd.begin(16, 2);
+  lcd.print("Height = ");
+  Serial.println("test");
+}
+
+void loop() {
+  Serial.println("test");
+  lcd.setCursor(0, 1);   
+  long newPosition = myEnc.read();
+  float init_p = 0;
+
+  if (newPosition != oldPosition) {
+
+    float angle = ((float)newPosition / countsPerRevolution) * 360.0;
+    
+    
+    angle = fmod(angle, 360.0);
+    if (angle < 0) {
+      angle += 360.0;
+    }
+    int L = 15;
+    int W = 3;
+    int R = 0.25;
+    Serial.println("Position: ");
+    Serial.print(newPosition);
+    Serial.print(" | Angle: ");
+    Serial.print(angle, 2); 
+    Serial.println(" degrees");
+    float cal_p = angle * 3.1415 / 180; 
+    float abs_v = W / 2 * sin(cal_p);
+    float cal_height = L * (1 - cos(cal_p)) + 8.5 - abs(abs_v);   //+ R*(sqrt(2)*cos(cal_p - 0.785398) - 1);
+    //cal_height = cal_height + 8.5;
+    Serial.print("Height = ");
+    Serial.println(cal_height, 2);
+    lcd.print(cal_height, 2); 
+    oldPosition = newPosition;
+    delay(500);
+  }
+}
