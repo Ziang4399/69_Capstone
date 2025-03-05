@@ -1,0 +1,92 @@
+
+// Kendall Cooney 2025
+// https://wokwi.com/projects/424437979692111873
+
+// Simulating using Wokwi. Intending to use potentiometer
+// as "analog in" to determine height, then send that
+// signal via Modbus. In this example we are initiating
+// Arduino as the master to write data.
+
+#include <ArduinoRS485.h>
+#include <ArduinoModbus.h>
+// In actual context, we want the Arduino to act as a
+// slave... It will send data when pinged by an 
+// external controller.
+// https://github.com/arduino-libraries/ArduinoModbus
+// https://docs.arduino.cc/libraries/arduinomodbus/#ModbusServer%20Class
+
+// Defining potentiometer pin
+#define aiPin A0
+
+void setup() {
+  Serial.begin(9600);
+  // put your setup code here, to run once:
+  Serial.println("Modbus RTU");
+  pinMode(aiPin,INPUT);
+
+  // start the Modbus RTU client
+  if (!ModbusRTUClient.begin(9600)) {
+    Serial.println("Failed to start Modbus RTU Client!");
+    while (1); // Starts infinite loop if can't start!
+  }
+
+}
+
+float detectHeight() {
+  float pot = analogRead(aiPin);
+  float height = pot + 5;
+  return height;
+}
+
+void loop() {
+
+  float height = detectHeight();
+  Serial.print("Height is: ");
+  Serial.println(height);
+
+  // Convert height to uint8_t for library compatibility
+  uint16_t uintHeight = static_cast<uint16_t>(height);
+  Serial.print("uInt is: ");
+  Serial.println(uintHeight);
+
+  // Now write to Modbus!
+  writeHeight(uintHeight);
+
+  Serial.println("");
+  delay(500);
+
+  // put your main code here, to run repeatedly:
+  // poll for Modbus RTU requests
+  /*data = detectHeight();
+  int packetReceived = ModbusRTUServer.poll();
+
+  if(packetReceived) {
+    // read the current value of the coil
+    writeHeight(data);
+    } */
+}
+
+
+// Taken from Github examples
+void writeHeight(uint16_t data) {
+
+  // We want to send a HEIGHT value... So we just want to
+  // transmit essentially 0-20 value. Modbus holding
+  // registers are 16-bit, so can store more data, but we
+  // will just need to write one holding register.
+
+  Serial.print("Writing to holding register... ");
+
+  // write uint16_t value to master, address 0x00
+
+  ModbusRTUClient.beginTransmission(42, HOLDING_REGISTERS, 0x00, 1);
+  ModbusRTUClient.write(data);
+
+  if (!ModbusRTUClient.endTransmission()) {
+    Serial.print("failed! ");
+    Serial.println(ModbusRTUClient.lastError());
+  } else {
+    Serial.println("success!");
+  }
+  
+}
