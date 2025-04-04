@@ -1,0 +1,60 @@
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+#include <Encoder.h>
+
+
+//LCD SDA to A4, SCL to A5 UNO
+//LCD SDA to D20, SCL to D21 2560
+LiquidCrystal_I2C lcd(0x27,20,4); 
+
+// 旋转编码器使用 D18 和 D19,for dc motor encdoer, it use D2 and D3
+Encoder myEnc(18, 19);
+
+long oldPosition = 0;
+const int pulsesPerRevolution = 600;  
+const int countsPerRevolution = pulsesPerRevolution * 4;
+
+void setup() {
+    Serial.begin(9600);
+    lcd.init();        
+    lcd.backlight();    
+    lcd.setCursor(0, 0);
+    lcd.print("Height = ");
+
+}
+
+void loop() {
+    
+    lcd.setCursor(0, 1);
+    long newPosition = myEnc.read();
+
+    if (newPosition != oldPosition) {
+        float angle = ((float)newPosition / countsPerRevolution) * 360.0;
+        angle = fmod(angle, 360.0);
+        if (angle < 0) {
+            angle += 360.0;
+        }
+
+        int L = 15;
+        int W = 3;
+        float cal_p = angle * 3.1415 / 180;
+        float abs_v = W / 2 * sin(cal_p);
+        float cal_height = L * (1 - cos(cal_p)) + 8.5 - abs(abs_v);
+
+        Serial.println("Height = ");
+        Serial.print(cal_height, 2);
+        Serial.println("Angle = ");
+        Serial.print(angle, 2);        
+        lcd.clear();   // 清屏，防止残留字符
+        lcd.setCursor(0, 0);
+        lcd.print("Height:");
+        lcd.setCursor(8, 0);
+        lcd.print(cal_height, 2);
+        lcd.setCursor(0, 1);
+        lcd.print("Angle:");
+        lcd.setCursor(8, 1);
+        lcd.print(angle, 2);
+        oldPosition = newPosition;
+        delay(500);
+    }
+}
