@@ -1,0 +1,144 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Encoder.h>
+#include <Servo.h>
+
+Servo esc1;
+LiquidCrystal_I2C lcd(0x27, 20, 4);
+
+// Encoder setup
+Encoder myEnc(18, 19);       // Encoder for rod angle
+Encoder myEnc_motor(2, 3);   // Encoder for motor
+const int ppr = 1993.6;      // Motor PPR
+const float wheelDiameterInches = 2.0;
+const int escPin = 9;
+
+const int pulsesPerRevolution = 600;
+const int countsPerRevolution = pulsesPerRevolution * 4;
+
+float targetDegrees = 0;
+int check_down = 0;  // State machine variable
+
+// Timer variables
+unsigned long lastTriggerTime = 0;
+const unsigned long triggerInterval = 500;
+
+void setup() {
+  Serial.begin(9600);
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Height = ");
+
+  esc1.attach(escPin);
+  set_esc_power(esc1, 0);  // neutral
+  delay(2000);
+
+  check_down = 0; // Initialize state machine
+}
+
+void set_esc_power(Servo& esc, int power) {
+  power = constrain(power, -100, 100);
+  int signalMin = 1050;
+  int signalMax = 1950;
+  int signalOutput = map(power, -100, 100, signalMin, signalMax);
+  esc.writeMicroseconds(signalOutput);
+}
+
+void loop() {
+  static float lastAngle = -1;
+  static float lastHeight = -1;
+
+  long newPosition = myEnc.read();
+  float angle = ((float)newPosition / countsPerRevolution) * 360.0;
+  angle = fmod(angle, 360.0);
+  if (angle < 0) angle += 360.0;
+
+  // Calculate height and target angle every 500ms
+  if (millis() - lastTriggerTime >= triggerInterval) {
+    lastTriggerTime = millis();
+
+    // Geometry calculation
+    int L = 15;
+    int W = 3;
+    float cal_p = angle * PI / 180;
+    float abs_v = W / 2 * sin(cal_p);
+    float cal_height = L * (1 - cos(cal_p)) + 8.5 - abs(abs_v);
+    float lift_height = abs(cal_height - 8.5);
+    targetDegrees = (lift_height * 360.0) / (PI * wheelDiameterInches);
+
+    // Update LCD only when value changes
+    if (abs(angle - lastAngle) > 0.1 || abs(cal_height - lastHeight) > 0.1) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Height:");
+      lcd.setCursor(8, 0);
+      lcd.print(cal_height, 2);
+      lcd.setCursor(0, 1);
+      lcd.print("Angle:");
+      lcd.setCursor(8, 1);
+      lcd.print(angle, 2);
+      lastAngle = angle;
+      lastHeight = cal_height;
+    }
+
+    Serial.print("Height: "); Serial.print(cal_height, 2);
+    Serial.print(" | Angle: "); Serial.print(angle, 2);
+    Serial.print(" | Lift Target Deg: "); Serial.println(targetDegrees, 2);
+  }
+
+  // Motor encoder angle
+  float degrees = (myEnc_motor.read() * 360.0) / ppr;
+
+  // State machine
+  switch (check_down) {
+    case 0: {  // Raise the rod
+      set_esc_power(esc1, 30);
+      if (degrees >= targetDegrees) {
+        check_down = 1;
+        Serial.println("case 0 finished, holding start");
+      }
+    }
+    break;
+
+    case 1: {  // Hold position
+      set_esc_power(esc1, 0);
+      // If rod angle changes, go to decision stage
+      if (abs(angle - lastAngle) > 1.0) {
+        if (degrees > targetDegrees + 5.0) {
+          check_down = 2;
+          Serial.println("case 2 start (go down)");
+        } else {
+          check_down = 0;
+          Serial.println("case 0 restart (go up)");
+        }
+      }
+    }
+    break;
+
+    case 2: {  // Lower the rod
+      set_esc_power(esc1, -30);
+      degrees = (myEnc_motor.read() * 360.0) / ppr;
+      if (degrees <= 0) {
+        check_down = 3;
+        Serial.println("case 2 finished, reaching bottom");
+      }
+    }
+    break;
+
+    case 3: {  // Hold after lowering
+      set_esc_power(esc1, 0);
+      // If angle changes again, re-evaluate
+      if (abs(angle - lastAngle) > 1.0) {
+        if (degrees > targetDegrees + 5.0) {
+          check_down = 2;
+          Serial.println("case 2 restart");
+        } else {
+          check_down = 0;
+          Serial.println("case 0 restart");
+        }
+      }
+    }
+    break;
+  }
+}
